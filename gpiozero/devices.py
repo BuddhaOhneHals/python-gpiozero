@@ -16,8 +16,6 @@ from itertools import chain
 from types import FunctionType
 from threading import Lock
 
-import pkg_resources
-
 from .pins import Pin
 from .threads import _threads_shutdown
 from .mixins import (
@@ -430,7 +428,24 @@ class GPIODevice(Device):
 # Defined last to ensure Device is defined before attempting to load any pin
 # factory; pin factories want to load spi which in turn relies on devices (for
 # the soft-SPI implementation)
-def _default_pin_factory(name=os.getenv('GPIOZERO_PIN_FACTORY', None)):
+def _default_pin_factory(name=os.getenv('GPIOZERO_PIN_FACTORY', None),
+                         factory_class=None):
+    class_path = factory_class or os.getenv('GPIOZERO_PIN_FACTORY_CLASS', None)
+    if class_path:
+        # If a factory_class is specified, try to import and instantiate the
+        # class without the usage of the pkg_recources module.
+        import importlib
+        try:
+            module, factory_class = class_path.split(':')
+            mod = importlib.import_module(module)
+            return getattr(mod, factory_class)()
+        except Exception as e:
+            warnings.warn(
+                    PinFactoryFallback(
+                        'Falling back from %s: %s' % (class_path, str(e))))
+        raise BadPinFactory('Unable to load any default pin factory!')
+        
+    import pkg_resources
     group = 'gpiozero_pin_factories'
     if name is None:
         # If no factory is explicitly specified, try various names in
